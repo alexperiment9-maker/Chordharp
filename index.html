@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="theme-color" content="#1b1e23">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ChordHarp">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="description" content="ChordHarp: a pocket chord harp with mood finder, lead synth and arpeggiator.">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ChordHarp</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -153,6 +158,18 @@ input[type=range]::-moz-range-thumb{width:20px;height:30px;border-radius:3px;bor
 .tips li{font-size:14px;line-height:1.45;color:var(--ink);padding-left:12px;border-left:2px solid var(--gold)}
 .tips b{color:var(--gold);font-weight:600}
 .toast{position:fixed;left:50%;top:44px;transform:translateX(-50%);z-index:9;padding:8px 14px;font-size:13px;max-width:88%;text-align:center}
+/* welcome / install */
+.welcome{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:20px;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px),linear-gradient(#262a31,#111316)}
+.welcome .box{width:100%;max-width:360px;display:flex;flex-direction:column;gap:14px;align-items:stretch;text-align:center}
+.welcome .logo{font-family:var(--label);font-weight:700;font-size:38px;letter-spacing:.16em;color:var(--gold);text-shadow:0 2px 0 #000}
+.welcome .logo span{color:var(--ink)}
+.welcome .scr{padding:12px;font-size:14px;line-height:1.5}
+.welcome .hw{height:52px;font-size:17px}
+.welcome .hw.big{height:60px;font-size:20px}
+.welcome .how{padding:12px;font-size:14px;line-height:1.5;text-align:left}
+.tiprow{display:flex;gap:6px}
+.tiprow .hw{flex:1;height:40px;font-size:14px}
 @media (prefers-reduced-motion:reduce){.chord:active{transform:none}.hw{transition:none}}
 @media (max-width:349px){.brand span{display:none}}
 </style>
@@ -207,6 +224,16 @@ input[type=range]::-moz-range-thumb{width:20px;height:30px;border-radius:3px;bor
   </div>
 </div>
 
+<div class="welcome" id="welcome" hidden>
+  <div class="box">
+    <div class="logo">CHORD<span>HARP</span></div>
+    <div class="lcd scr">POCKET CHORD HARP<br>MOOD FINDER · LEAD SYNTH · ARP</div>
+    <button class="hw on big" id="installBtn">Install app</button>
+    <div class="lcd how" id="installHow" hidden></div>
+    <button class="hw" id="shareBtn">Share with friends</button>
+    <button class="hw" id="skipBtn">Continue in browser</button>
+  </div>
+</div>
 <div class="back" id="back" hidden></div>
 <div class="lcd toast" id="toast" hidden role="status"></div>
 
@@ -278,6 +305,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:30px;border-radius:3px;bor
 
 <section class="sheet" id="sheet-tips" hidden role="dialog" aria-label="Tips">
   <header><h2>Tips and tricks</h2><button class="hw close" data-close>Done</button></header>
+  <div class="tiprow" id="appRow" hidden><button class="hw" id="tipInstall">Install app</button><button class="hw" id="tipShare">Share with friends</button></div>
   <ul class="tips">
     <li><b>Two thumbs.</b> Hold a chord with the left thumb, drag the strings with the right. Slow drag sounds like a harp, a quick flick like a guitar strum.</li>
     <li><b>No theory needed.</b> Press Mood, pick a feeling and a flavour, press Use. Every chord on screen now fits together.</li>
@@ -291,6 +319,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:30px;border-radius:3px;bor
     <li><b>Chord colours.</b> 7th is smoother and jazzier. sus4 feels open and unfinished. add9 is dreamy.</li>
     <li><b>Hold.</b> With Hold on, the chord keeps ringing. Tap the same chord again to silence it.</li>
     <li><b>Tempo.</b> Tap the number in time with the speed you want.</li>
+    <li><b>Sound delay.</b> <span id="latTxt">Tap a chord once, then reopen Tips to see this phone's sound delay.</span> Bluetooth speakers and earbuds add a lot of delay. Use the phone speaker or wired earphones.</li>
     <li><b>No sound?</b> Check the phone's media volume and silent mode, then tap any chord once.</li>
   </ul>
 </section>
@@ -466,8 +495,10 @@ function initAudio(){
   if(!AC){audioDead=true;toast('This browser cannot make sound');return;}
   try{
     let c;try{c=new AC({latencyHint:'interactive'});}catch(e){c=new AC();}
-    const comp=c.createDynamicsCompressor();comp.threshold.value=-14;comp.ratio.value=5;
-    const master=c.createGain();master.gain.value=.9;master.connect(comp);comp.connect(c.destination);
+    const comp=c.createWaveShaper(),cv=new Float32Array(1024);          /* soft limiter with no look-ahead delay */
+    for(let i=0;i<1024;i++){const x=i/511.5-1;cv[i]=Math.tanh(1.6*x)/Math.tanh(1.6);}
+    comp.curve=cv;
+    const master=c.createGain();master.gain.value=.7;master.connect(comp);comp.connect(c.destination);
     an=c.createAnalyser();an.fftSize=256;comp.connect(an);
     const conv=c.createConvolver(),len=Math.floor(c.sampleRate*2.4),ib=c.createBuffer(2,len,c.sampleRate);
     for(let ch=0;ch<2;ch++){const d=ib.getChannelData(ch);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6);}
@@ -489,6 +520,7 @@ function applyMix(now){
   set(revGain.gain,S.reverb*1.1);set(echoWet.gain,S.echo);
   set(dly.delayTime,Math.min(1.5,60/S.bpm*.75));
 }
+document.addEventListener('pointerdown',()=>{initAudio();},{capture:true,passive:true});
 ['touchend','click','keydown'].forEach(ev=>document.addEventListener(ev,()=>{if(ac&&ac.state!=='running')ac.resume().catch(()=>{});},{passive:true}));
 
 /* one-shot voice: string sounds and lead sounds share this */
@@ -510,7 +542,7 @@ function voice(m,t,vel,sus,kind,dest){
     case 'soft':{const x=lp(1700);mk('triangle',f,.6,x);mk('sine',f,.2,x,5);flat=true;break;}
     default:mk('triangle',f,.8);mk('sine',f*2,.18);mk('sine',f*3,.05);
   }
-  g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(vel,t+.006);
+  g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(vel,t+.003);
   if(flat){g.gain.setValueAtTime(vel,t+dur*.7);g.gain.linearRampToValueAtTime(.0001,t+dur);}
   else g.gain.exponentialRampToValueAtTime(.0001,t+dur);
   oscs.forEach(o=>{o.d0=o.detune.value;o.m0=o.m=o.tgt=m;o.start(t);o.stop(t+dur+.05);});
@@ -530,7 +562,7 @@ function startPad(ch){
   if(!ac)return;stopPad();
   if(S.chordSound==='off'||S.vol.chord<.01)return;
   const t=ac.currentTime,g=ac.createGain(),oscs=[];
-  g.gain.value=0;g.gain.setTargetAtTime(1,t,.04);g.connect(bus.chord);
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(1,t+.004);g.connect(bus.chord);
   const R=rootBase(ch),notes=IV[qual(ch)].map(i=>R+i);
   if(S.chordSound==='pad'){
     const f=ac.createBiquadFilter();f.type='lowpass';f.frequency.value=1500;f.connect(g);
@@ -569,7 +601,7 @@ function leadOn(m){
   const t=ac.currentTime,fr=freq(m),slide=lead.gate&&S.glide>.004;
   lead.oscs.forEach(o=>{hold(o.frequency,t);if(slide)o.frequency.setTargetAtTime(fr*o.mult,t,S.glide/3);else o.frequency.setValueAtTime(fr*o.mult,t);});
   if(!lead.gate){
-    hold(lead.g.gain,t);lead.g.gain.setTargetAtTime(1,t,.006);
+    hold(lead.g.gain,t);lead.g.gain.setTargetAtTime(1,t,.003);
     hold(lead.lfoG.gain,t);lead.lfoG.gain.setValueAtTime(0,t);lead.lfoG.gain.setTargetAtTime(S.vib*45,t+.18,.15);
   }
   if(lead.kind==='acid'){hold(lead.f.frequency,t);lead.f.frequency.setValueAtTime(Math.min(fr*10,9000),t);lead.f.frequency.setTargetAtTime(Math.max(fr*1.5,500),t,.09);}
@@ -695,7 +727,9 @@ function press(ch){
   const same=ckey(cur)===ckey(ch);
   cur=Object.assign({},ch);
   if(S.hold&&same&&pad)stopPad();else startPad(cur);
-  recPush();markActive();
+  const k=ckey(cur);
+  document.querySelectorAll('.chord.on').forEach(b=>b.classList.remove('on'));
+  requestAnimationFrame(safe(()=>{if(ckey(cur)===k){recPush();markActive();}}));
 }
 
 /* ---------- pitch bend: hold a chord, slide to another ---------- */
@@ -958,6 +992,7 @@ function closeSheets(){document.querySelectorAll('.sheet').forEach(s=>{s.hidden=
 function openSheet(n){
   const el=$('sheet-'+n);if(!el)return;const was=!el.hidden;closeSheets();if(was)return;
   if(n==='mood')renderMood();
+  if(n==='tips'&&ac){const ms=Math.round(((ac.baseLatency||0)+(ac.outputLatency||0))*1000);if(ms>0)$('latTxt').textContent='This phone reports about '+ms+' ms from touch to sound right now.';}
   el.hidden=false;el.scrollTop=0;$('back').hidden=false;const t=document.querySelector('.tabs button[data-sheet="'+n+'"]');if(t)t.setAttribute('aria-expanded','true');
 }
 document.querySelectorAll('.tabs button').forEach(b=>on(b,'click',()=>openSheet(b.dataset.sheet)));
@@ -991,11 +1026,43 @@ document.addEventListener('contextmenu',e=>e.preventDefault());
 on(document,'visibilitychange',()=>{if(document.hidden){recover();if(playing)setPlaying(false);else if(!S.hold)stopPad();}});
 window.addEventListener('blur',safe(()=>{last.clear();leadOff();leadMark(-1);}));
 
-/* installable + offline when hosted on GitHub Pages */
-if(/github\.io$/.test(location.hostname)){
-  try{const l=document.createElement('link');l.rel='manifest';l.href='manifest.json';document.head.appendChild(l);
-    if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});}catch(e){}
-}
+/* install + share: only when opened as a real web page (not inside a preview frame) */
+(function(){
+  let top=false;try{top=window.top===window.self;}catch(e){}
+  const web=top&&/^https?:$/.test(location.protocol);
+  if(!web)return;
+  try{
+    const l=document.createElement('link');l.rel='manifest';l.href='manifest.json';document.head.appendChild(l);
+    const a=document.createElement('link');a.rel='apple-touch-icon';a.href='icon-192.png';document.head.appendChild(a);
+    if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }catch(e){}
+  const standalone=(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;
+  const ua=navigator.userAgent||'',ios=/iPhone|iPad|iPod/i.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
+  let deferred=null,seen=false;try{seen=localStorage.getItem('chordharp-welcome')==='1';}catch(e){}
+  const w=$('welcome'),how=$('installHow');
+  const hide=()=>{w.hidden=true;try{localStorage.setItem('chordharp-welcome','1');}catch(e){}};
+  window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;});
+  window.addEventListener('appinstalled',()=>{deferred=null;hide();$('tipInstall').hidden=true;toast('ChordHarp installed');});
+  const install=safe(()=>{
+    if(deferred){const d=deferred;deferred=null;d.prompt();if(d.userChoice)d.userChoice.then(r=>{if(r&&r.outcome==='accepted')hide();}).catch(()=>{});return;}
+    how.hidden=false;
+    how.textContent=ios?'On iPhone: open this page in Safari, tap the Share button, then "Add to Home Screen".'
+      :'Tap the browser menu (three dots, top right), then "Add to Home screen" or "Install app".';
+    if(w.hidden)toast(how.textContent);
+  });
+  const share=safe(()=>{
+    const data={title:'ChordHarp',text:'Play chords, leads and arps on your phone. No music theory needed.',url:location.href.split('#')[0]};
+    if(navigator.share){navigator.share(data).catch(()=>{});return;}
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(data.url).then(()=>toast('Link copied')).catch(()=>toast(data.url));
+    else toast(data.url);
+  });
+  $('installBtn').addEventListener('click',install);$('tipInstall').addEventListener('click',install);
+  $('shareBtn').addEventListener('click',share);$('tipShare').addEventListener('click',share);
+  $('skipBtn').addEventListener('click',safe(hide));
+  $('appRow').hidden=false;
+  if(standalone){$('tipInstall').hidden=true;$('installBtn').hidden=true;}
+  else if(!seen)w.hidden=false;
+})();
 
 /* boot */
 try{setBpm(S.bpm);setOct(S.oct);refreshAll();pickDefault();if(S.song.length)renderSong();}
